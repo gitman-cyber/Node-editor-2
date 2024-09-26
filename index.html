@@ -1,0 +1,1172 @@
+<html><head>
+<script src="morphic.js"></script>
+</head><body>
+<canvas id="world" width="1000" height="1000" style="position: absolute;"></canvas>
+
+<script>
+var world, startNode, startPoint, currentConnection;
+
+window.onload = function() {
+  world = new WorldMorph(document.getElementById('world'), false);
+  world.isDevMode = false;
+CommentMorph.prototype = new BoxMorph();
+CommentMorph.prototype.constructor = CommentMorph;
+CommentMorph.uber = BoxMorph.prototype;
+
+// CommentMorph instance creation:
+
+function CommentMorph(contents) {
+    this.init(contents);
+}
+
+CommentMorph.prototype.init = function (contents) {
+    var scale = 10;
+
+    this.block = null; // optional anchor block
+    this.stickyOffset = null; // not to be persisted
+    this.isCollapsed = false;
+    this.titleBar = new BoxMorph(
+        0,
+        scale
+    );
+
+    this.titleBar.setExtent(new Point(this.extent().x, this.extent().y))
+    this.titleBar.setColor(new Color(255, 255, 144))
+
+    this.titleBar.render = function(ctx) {
+    function drawRoundedRect(ctx, x, y, width, height, radius) {
+      ctx.beginPath();
+      ctx.moveTo(x + radius, y);
+      ctx.lineTo(x + width - radius, y);
+      ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+      ctx.lineTo(x + width, y + height - radius);
+      ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+      ctx.lineTo(x + radius, y + height);
+      ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+      ctx.lineTo(x, y + radius);
+      ctx.quadraticCurveTo(x, y, x + radius, y);
+      ctx.closePath();
+    }
+
+    const outerX = 1;
+    const outerY = 1;
+    const outerWidth = this.width();
+    const outerHeight = this.height();
+    const outerRadius = this.width() + this.height();
+
+    const holeX = outerX + outerWidth / 4;
+    const holeY = outerY + outerHeight / 4;
+    const holeWidth = outerWidth / 2;
+    const holeHeight = outerHeight / 2;
+    const holeRadius = outerRadius / 2;
+
+    // Draw outer rounded rectangle
+    ctx.fillStyle = this.color.toString()
+    drawRoundedRect(ctx, outerX, outerY, outerWidth, outerHeight, outerRadius);
+    ctx.fill();
+
+    // Set global composite operation to "destination-out" to cut the hole
+    
+
+    // Draw inner rounded rectangle (the hole)
+    drawRoundedRect(ctx, holeX, holeY, holeWidth, holeHeight, holeRadius);
+    ctx.fill();
+    ctx.clearRect(holeX, holeY, holeWidth, holeHeight)
+
+    // Reset global composite operation
+
+    }
+    this.title = null;
+    
+    this.contents = new TextMorph(
+        contents,
+        this.fontSize
+    );
+    this.contents.isEditable = true;
+    this.contents.enableSelecting();
+    this.contents.maxWidth = 90 * scale;
+    this.contents.setPosition(new Point(this.titleBar.position().x + 20, this.titleBar.position().y + 15))
+    this.handle = new HandleMorph(
+        this.contents,
+        80,
+        this.fontSize * 2,
+        -2,
+        -2
+    );
+    this.handle.setExtent(new Point(11 * scale, 11 * scale));
+    this.anchor = null;
+
+    CommentMorph.uber.init.call(
+        this,
+        this.rounding,
+        scale,
+        new Color(255, 255, 180)
+    );
+    this.isDraggable = true;
+    this.add(this.titleBar);
+    this.add(this.contents);
+    this.add(this.handle);
+
+    this.fixLayout();
+};
+  // Create container class
+  var ContainerMorph = function() {
+    this.init();
+  };
+  CommentMorph.prototype.toggleExpand = function () {
+    var scripts = this.parentThatIsA(PaletteMorph);
+    this.isCollapsed = !this.isCollapsed;
+    if (!this.isCollapsed) {
+    }
+    if (scripts) {
+        scripts.scriptTarget().recordUserEdit(
+            'scripts',
+            'comment',
+            this.isCollapsed ? 'collapse' : 'expand'
+        );
+    }
+};
+
+
+
+  function InputMorph() {
+  
+  }
+  InputMorph.prototype = new StringMorph('');
+  InputMorph.prototype.constructor = InputMorph;
+  InputMorph.prototype.render = function(ctx) {
+  //unfinished
+  }
+
+  ContainerMorph.prototype = new Morph();
+  ContainerMorph.prototype.constructor = ContainerMorph;
+
+  ContainerMorph.prototype.init = function() {
+    Morph.prototype.init.call(this);
+    this.setExtent(world.extent());
+    this.color = new Color(240, 240, 245);
+    this.isDraggable = false;
+    this.acceptsDrops = true;
+    this.createColorPalette();
+  };
+
+  ContainerMorph.prototype.createColorPalette = function() {
+    this.palette = {
+      background: new Color(30, 30, 35), // Darker background
+node: new Color(50, 50, 60),       // Slightly lighter node
+border: new Color(80, 80, 90),     // Lighter border for visibility
+title: new Color(200, 200, 220),   // Brighter title color for emphasis
+text: new Color(220, 220, 230),    // Light text color for readability
+connection: new Color(160, 160, 180), // Soft connection color
+dialogTitle: new Color(150, 150, 180) // Dialog title for contrast
+    };
+  };
+
+  ContainerMorph.prototype.render = function(ctx) {
+    ctx.fillStyle = this.palette.background
+    ctx.fillRect(0, 0, this.width(), this.height());
+    
+    // Add a subtle grid pattern
+    ctx.strokeStyle = this.palette.border.lighter(20).toString();
+    ctx.lineWidth = 0.5;
+    const gridSize = 20;
+    for (let x = 0; x < this.width(); x += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, this.height());
+      ctx.stroke();
+    }
+    for (let y = 0; y < this.height(); y += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(this.width(), y);
+      ctx.stroke();
+    }
+  };
+ContainerMorph.prototype.mouseMove = function(pos) {
+  this.hand = new HandMorph(this.world())
+  this.hand.setPosition(pos) 
+  }
+  ContainerMorph.prototype.getHand = function() {
+  return this.hand;
+  }
+  // Create node class
+var NodeMorph = function(position, label, hint) {
+    this.init(position, label, hint);
+  };
+
+  NodeMorph.prototype = new Morph();
+  NodeMorph.prototype.constructor = NodeMorph;
+
+  NodeMorph.prototype.init = function(position, label, hint) {
+    Morph.prototype.init.call(this);
+    this.setPosition(position);
+    this.setExtent(new Point(180, 140));
+    this.color = world.children[0].palette.node;
+    this.borderColor = world.children[0].palette.border;
+    this.border = 2;
+    this.edge = 15;
+    this.label = label;
+    this.isDraggable = true;
+    this.addConnectionPoints();
+    this.addTextArea();
+      this.hint = hint ? hint : "Hint not availibe"
+    this.addHintMark();
+  };
+
+NodeMorph.prototype.render = function (ctx) {
+    var palette = world.children[0].palette;
+
+    // Draw shadow
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+    ctx.shadowBlur = 15;
+    ctx.shadowOffsetX = 5;
+    ctx.shadowOffsetY = 5;
+
+    // Draw the node's body
+    ctx.fillStyle = palette.node.toString();
+    ctx.beginPath();
+    this.outlinePath(ctx, 0, 0);
+    ctx.closePath();
+    ctx.fill();
+
+    // Reset shadow
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+
+    // Draw the border
+    ctx.lineWidth = this.border;
+    ctx.strokeStyle = palette.border.toString();
+    ctx.beginPath();
+    this.outlinePath(ctx, 0, 0);
+    ctx.closePath();
+    ctx.stroke();
+
+    // Draw the title bar at the top
+    const titleBarHeight = 30;
+    const gradient = ctx.createLinearGradient(0, 0, 0, titleBarHeight);
+    gradient.addColorStop(0, palette.title.lighter(20).toString());
+    gradient.addColorStop(1, palette.title.toString());
+    ctx.fillStyle = gradient;
+    
+    // Draw rounded rectangle for title bar
+    ctx.beginPath();
+    ctx.moveTo(0, titleBarHeight);
+    ctx.lineTo(0, this.edge);
+    ctx.quadraticCurveTo(0, 0, this.edge, 0);
+    ctx.lineTo(this.width() - this.edge, 0);
+    ctx.quadraticCurveTo(this.width(), 0, this.width(), this.edge);
+    ctx.lineTo(this.width(), titleBarHeight);
+    ctx.closePath();
+    ctx.fill();
+
+    // Draw the title text in the title bar (centered)
+    ctx.fillStyle = "black" //palette.text.toString();
+    ctx.font = 'bold 14px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(this.label, this.width() / 2, titleBarHeight / 2 + 5);
+
+    // Draw a subtle inner shadow for depth
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
+    ctx.shadowBlur = 5;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 2;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+    ctx.fillRect(0, titleBarHeight, this.width(), this.height() - titleBarHeight);
+
+    // Reset shadow
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+
+    // Add a subtle highlight at the top
+    const highlightGradient = ctx.createLinearGradient(0, 0, 0, 5);
+    highlightGradient.addColorStop(0, 'rgba(255, 255, 255, 0.1)');
+    highlightGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = highlightGradient;
+    ctx.fillRect(0, 0, this.width(), 5);
+};
+
+  NodeMorph.prototype.outlinePath = function (ctx, radius, inset) {
+    var w = this.width(),
+        h = this.height(),
+        r = radius || this.edge,
+        i = inset || 0;
+
+    ctx.moveTo(r + i, i);
+    ctx.lineTo(w - r - i, i);
+    ctx.quadraticCurveTo(w - i, i, w - i, r + i);
+    ctx.lineTo(w - i, h - r - i);
+    ctx.quadraticCurveTo(w - i, h - i, w - r - i, h - i);
+    ctx.lineTo(r + i, h - i);
+    ctx.quadraticCurveTo(i, h - i, i, h - r - i);
+    ctx.lineTo(i, r + i);
+    ctx.quadraticCurveTo(i, i, r + i, i);
+};
+
+  NodeMorph.prototype.addConnectionPoints = function() {
+    const numPoints = 3; // Number of connection points
+    const paddingTop = 10; // Padding from the top of the node
+    const paddingSides = 5; // Padding from the sides of the node
+    const pointSpacing = (this.height() - 2 * paddingTop) / (numPoints + 1); // Dynamic spacing based on node height
+    const pointSize = 10; // Size of the connection points
+
+    for (let i = 1; i <= numPoints; i++) {
+        // Create input connection points (on the left side)
+        let inputPoint = new ConnectionPointMorph(
+            new Point(-pointSize / 2, paddingTop + i * pointSpacing), // Adjusted for left side
+            this,
+            'input'
+        );
+        inputPoint.setPosition(new Point(this.position().x - 10, this.position().y + i * 10))
+        this.add(inputPoint);
+
+        // Create output connection points (on the right side)
+        let outputPoint = new ConnectionPointMorph(
+            new Point(this.width() - pointSize / 2 + paddingSides, paddingTop + i * pointSpacing), // Adjusted for right side
+            this,
+            'output'
+        );
+        outputPoint.setPosition(new Point(this.position().x + 180, this.position().y + i * 10))
+        this.add(outputPoint);
+    }
+};
+
+
+
+  NodeMorph.prototype.addTextArea = function() {
+  
+  };
+
+  NodeMorph.prototype.reactToGrabOf = function (grabbedMorph) {
+    this.children.forEach(function (child) {
+      if (child instanceof ConnectionPointMorph) {
+        child.updatePosition();
+      }
+    });
+  }; 
+NodeMorph.prototype.addHintMark = function() {
+    var hintMark = new HintMorph(this.hint);
+    hintMark.setPosition(this.position());
+    this.add(hintMark);
+};
+
+NodeMorph.prototype.reactToGrabOf = function (grabbedMorph) {
+    this.children.forEach(function (child) {
+        if (child instanceof ConnectionPointMorph) {
+            child.updatePosition();
+        }
+    });
+};
+
+// New HintMorph class
+var HintMorph = function(hint) {
+    this.init(hint);
+};
+
+HintMorph.prototype = new Morph();
+HintMorph.prototype.constructor = HintMorph;
+
+HintMorph.prototype.init = function(hint) {
+    Morph.prototype.init.call(this);
+    this.hint = hint;
+    this.color = new Color(150, 150, 150);
+    this.setExtent(new Point(20, 20));
+    this.isDraggable = false;
+};
+
+HintMorph.prototype.render = function(ctx) {
+    ctx.fillStyle = this.color.toString();
+    ctx.beginPath();
+    ctx.arc(10, 10, 10, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = 'white';
+    ctx.font = 'bold 14px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('?', 10, 10);
+};
+
+HintMorph.prototype.mouseClickLeft = function() {
+    var world = this.world();
+    if (world) {
+        var bubble = new SpeechBubbleMorph(
+            this.hint,
+            null,
+            null,
+            1
+        );
+        bubble.popUp(world, this.fullBounds().topLeft());
+    }
+};
+
+  // Create connection point class
+  var ConnectionPointMorph = function(position, parent, type) {
+    this.init(position, parent, type);
+};
+
+ConnectionPointMorph.prototype = new Morph();
+ConnectionPointMorph.prototype.constructor = ConnectionPointMorph;
+
+ConnectionPointMorph.prototype.init = function(position, parent, type) {
+    Morph.prototype.init.call(this);
+    this.setPosition(position);
+    this.setExtent(new Point(10, 10));
+    this.color = world.children[0].palette.connection;
+    this.parent = parent;
+    this.type = type;
+    this.isDraggable = false;
+    this.connections = [];
+    this.value = ""; // Initialize with an empty string
+    this.updatePosition();
+};
+
+ConnectionPointMorph.prototype.render = function(ctx) {
+    ctx.fillStyle = this.color.toString();
+    ctx.beginPath();
+    ctx.arc(this.width() / 2, this.height() / 2, this.width() / 2, 0, Math.PI * 2);
+    ctx.fill();
+};
+
+ConnectionPointMorph.prototype.updatePosition = function() {
+    if (this.type === 'input') {
+        this.setPosition(new Point(-this.width()/2, this.position().y));
+    } else {
+        this.setPosition(new Point(this.parent.width() - this.width()/2, this.position().y));
+    }
+    this.connections.forEach(conn => conn.updatePosition());
+};
+
+ConnectionPointMorph.prototype.mouseDownLeft = function(pos) {
+    var startNode = this.parent;
+    var startPoint = this;
+    var currentConnection = new ConnectionMorph(startNode, this, null, pos);
+    this.world().add(currentConnection);
+        var menu = new MenuMorph(this, 'Select Value');
+    var stringField = new StringFieldMorph(this.value || "");
+    menu.addItem(stringField);
+    menu.addItem('Ok', () => {
+        this.value = stringField.string();
+        // Replace the value in the list for this connection point
+        var index = this.parent.children.indexOf(this);
+        if (index !== -1) {
+            this.parent.children[index].value = this.value;
+        }
+        menu.destroy();
+        console.log(this.value)
+    });
+    menu.addItem('Cancel', () => {
+        menu.destroy();
+    });
+    menu.isDraggable = true;
+    menu.popUpAtHand(this.world());   
+};
+
+ConnectionPointMorph.prototype.mouseMove = function(pos) {
+    if (currentConnection) {
+        currentConnection.endPoint = pos;
+        currentConnection.updatePosition();
+    }
+};
+
+ConnectionPointMorph.prototype.mouseUpLeft = function(pos) {
+    if (currentConnection) {
+        let endPoint = this.nearestConnectionPoint(pos);
+        if (endPoint && endPoint !== startPoint && endPoint.parent !== startNode) {
+            currentConnection.endNode = endPoint.parent;
+            currentConnection.endPoint = endPoint;
+            currentConnection.updatePosition();
+            this.connections.push(currentConnection);
+            endPoint.connections.push(currentConnection);
+        } else {
+            currentConnection.destroy();
+        }
+        currentConnection = null;
+    }
+    startNode = null;
+    startPoint = null;
+};
+
+ConnectionPointMorph.prototype.nearestConnectionPoint = function(pos) {
+    let nearestPoint = null;
+    let minDistance = Infinity;
+
+    world.children[0].children.forEach(function(morph) {
+        if (morph instanceof NodeMorph) {
+            morph.children.forEach(function(child) {
+                if (child instanceof ConnectionPointMorph && child !== this && child.type !== this.type) {
+                    let distance = pos.distanceTo(child.position().add(child.extent().divideBy(2)));
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        nearestPoint = child;
+                    }
+                }
+            }, this);
+        }
+    }, this);
+
+    return minDistance < 20 ? nearestPoint : null;
+};
+  
+  // Create connection class  
+  var ConnectionMorph = function(startNode, startPoint, endNode, endPoint) {
+    this.init(startNode, startPoint, endNode, endPoint);
+  };
+  
+  ConnectionMorph.prototype = new Morph();
+  ConnectionMorph.prototype.constructor = ConnectionMorph;
+  
+  ConnectionMorph.prototype.init = function(startNode, startPoint, endNode, endPoint) {
+    Morph.prototype.init.call(this);
+    this.startNode = startNode;
+    this.startPoint = startPoint;
+    this.endNode = endNode;
+    this.endPoint = endPoint;
+    this.color = world.children[0].palette.connection;
+    this.updatePosition();
+  };
+  
+  ConnectionMorph.prototype.updatePosition = function() {
+    var start = this.startPoint.fullBounds().center(),
+        end = this.endPoint instanceof ConnectionPointMorph ? 
+              this.endPoint.fullBounds().center() : 
+              this.endPoint;
+    this.setPosition(new Point(
+      Math.min(start.x, end.x),
+      Math.min(start.y, end.y)
+    ));
+    this.setExtent(new Point(
+      Math.max(Math.abs(start.x - end.x), 1),
+      Math.max(Math.abs(start.y - end.y), 1)
+    ));
+    this.rerender();
+  };
+  
+  ConnectionMorph.prototype.render = function(ctx) {
+    var start = this.startPoint.fullBounds().center().subtract(this.position()),
+        end = this.endPoint instanceof ConnectionPointMorph ? 
+              this.endPoint.fullBounds().center().subtract(this.position()) : 
+              this.endPoint.subtract(this.position()),
+        mid = start.add(end).divideBy(2);
+    
+    ctx.strokeStyle = this.color.toString();
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.quadraticCurveTo(mid.x, start.y, mid.x, mid.y);
+    ctx.quadraticCurveTo(mid.x, end.y, end.x, end.y);
+    ctx.stroke();
+  };
+  
+  ConnectionMorph.prototype.step = function() {
+    
+  };
+
+  ConnectionMorph.prototype.destroy = function() {
+    if (this.startPoint) {
+      this.startPoint.connections = this.startPoint.connections.filter(conn => conn !== this);
+    }
+    if (this.endPoint) {
+      this.endPoint.connections = this.endPoint.connections.filter(conn => conn !== this);
+    }
+    world.removeChild(this);
+  };
+
+  // Create DialogBoxMorph class
+  var DialogBoxMorph = function(position, extent, title, content) {
+    this.init(position, extent, title, content);
+  };
+
+  DialogBoxMorph.prototype = new Morph();
+  DialogBoxMorph.prototype.constructor = DialogBoxMorph;
+
+  DialogBoxMorph.prototype.init = function(position, extent, title, content) {
+    Morph.prototype.init.call(this);
+    this.setPosition(position);
+    this.setExtent(extent);
+    this.title = title || "Dialog";
+    this.titleFontSize = 12;
+    this.titlePadding = 4;
+    this.corner = 8;
+    this.is3D = true;
+    this.contrast = 30;
+    this.createColorPalette();
+    this.content = content || "Dialog content goes here";
+    this.addCloseButton();
+    this.addContentText();
+  };
+
+  DialogBoxMorph.prototype.createColorPalette = function() {
+    var container = world.children[0];
+    this.titleBarColor = container.palette.title;
+    this.color = container.palette.node;
+  };
+
+  DialogBoxMorph.prototype.render = function (ctx) {
+    var gradient,
+        w = this.width(),
+        h = this.height(),
+        th = Math.floor(fontHeight(this.titleFontSize) + this.titlePadding * 2),
+        shift = this.corner / 2,
+        x,
+        y,
+        isFlat = !this.is3D;
+
+    // title bar
+    if (!isFlat) {
+      ctx.fillStyle = this.titleBarColor.toString();
+    } else {
+      gradient = ctx.createLinearGradient(0, 0, 0, th);
+      gradient.addColorStop(0, this.titleBarColor.lighter(this.contrast / 2).toString());
+      gradient.addColorStop(1, this.titleBarColor.darker(this.contrast).toString());
+      ctx.fillStyle = gradient;
+    }
+    ctx.beginPath();
+    this.outlinePathTitle(ctx, isFlat ? 0 : this.corner);
+    ctx.closePath();
+    ctx.fill();
+
+    // body
+    ctx.fillStyle = this.color.toString();
+    ctx.beginPath();
+    this.outlinePathBody(ctx, isFlat ? 0 : this.corner);
+    ctx.closePath();
+    ctx.fill();
+
+    if (isFlat) {
+      return;
+    }
+
+    // 3D-effect
+    // bottom left corner
+    gradient = ctx.createLinearGradient(0, h - this.corner, 0, h);
+    gradient.addColorStop(0, this.color.toString());
+    gradient.addColorStop(1, this.color.darker(this.contrast).toString());
+
+    ctx.lineWidth = this.corner;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = gradient;
+
+    ctx.beginPath();
+    ctx.moveTo(this.corner, h - shift);
+    ctx.lineTo(this.corner + 1, h - shift);
+    ctx.stroke();
+
+    // bottom edge
+    gradient = ctx.createLinearGradient(0, h - this.corner, 0, h);
+    gradient.addColorStop(0, this.color.toString());
+    gradient.addColorStop(1, this.color.darker(this.contrast).toString());
+
+    ctx.lineWidth = this.corner;
+    ctx.lineCap = 'butt';
+    ctx.strokeStyle = gradient;
+
+    ctx.beginPath();
+    ctx.moveTo(this.corner, h - shift);
+    ctx.lineTo(w - this.corner, h - shift);
+    ctx.stroke();
+
+    // right body edge
+    gradient = ctx.createLinearGradient(w - this.corner, 0, w, 0);
+    gradient.addColorStop(0, this.color.toString());
+    gradient.addColorStop(1, this.color.darker(this.contrast).toString());
+
+    ctx.lineWidth = this.corner;
+    ctx.lineCap = 'butt';
+    ctx.strokeStyle = gradient;
+
+    ctx.beginPath();
+    ctx.moveTo(w - shift, th);
+    ctx.lineTo(w - shift, h - this.corner);
+    ctx.stroke();
+
+    // bottom right corner
+    x = w - this.corner;
+    y = h - this.corner;
+
+    gradient = ctx.createRadialGradient(x, y, 0, x, y, this.corner);
+    gradient.addColorStop(0, this.color.toString());
+    gradient.addColorStop(1, this.color.darker(this.contrast).toString());
+
+    ctx.lineCap = 'butt';
+    ctx.strokeStyle = gradient;
+
+    ctx.beginPath();
+    ctx.arc(x, y, shift, Math.PI / 2, 0, true);
+    ctx.stroke();
+
+    // left body edge
+    gradient = ctx.createLinearGradient(0, 0, this.corner, 0);
+    gradient.addColorStop(0, this.color.lighter(this.contrast).toString());
+    gradient.addColorStop(1, this.color.toString());
+
+    ctx.lineCap = 'butt';
+    ctx.strokeStyle = gradient;
+
+    ctx.beginPath();
+    ctx.moveTo(shift, th);
+    ctx.lineTo(shift, h - this.corner * 2);
+    ctx.stroke();
+
+    // left vertical bottom corner
+    gradient = ctx.createLinearGradient(0, 0, this.corner, 0);
+    gradient.addColorStop(0, this.color.lighter(this.contrast).toString());
+    gradient.addColorStop(1, this.color.toString());
+
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = gradient;
+
+    ctx.beginPath();
+    ctx.moveTo(shift, h - this.corner * 2);
+    ctx.lineTo(shift, h - this.corner - shift);
+    ctx.stroke();
+
+    // Draw title text
+    ctx.fillStyle = 'white';
+    ctx.font = 'bold ' + this.titleFontSize + 'px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(this.title, w / 2, th / 2 + this.titleFontSize / 3);
+  };
+
+  DialogBoxMorph.prototype.outlinePathTitle = function (ctx, radius) {
+    var w = this.width(),
+        h = Math.ceil(fontHeight(this.titleFontSize)) + this.titlePadding * 2;
+
+    // top left:
+    ctx.arc(radius, radius, radius, Math.PI, Math.PI * 1.5, false);
+    // top right:
+    ctx.arc(w - radius, radius, radius, Math.PI * 1.5, 0, false);
+    // bottom right:
+    ctx.lineTo(w, h);
+    // bottom left:
+    ctx.lineTo(0, h);
+  };
+
+  DialogBoxMorph.prototype.outlinePathBody = function (ctx, radius) {
+    var w = this.width(),
+        h = this.height(),
+        th = Math.floor(fontHeight(this.titleFontSize)) + this.titlePadding * 2;
+
+    // top left:
+    ctx.moveTo(0, th);
+    // top right:
+    ctx.lineTo(w, th);
+    // bottom right:
+    ctx.arc(w - radius, h - radius, radius, 0, Math.PI / 2, false);
+    // bottom left:
+    ctx.arc(radius, h - radius, radius, Math.PI / 2, Math.PI, false);
+  };
+
+  DialogBoxMorph.prototype.addCloseButton = function() {
+    var closeButton = new Morph();
+    closeButton.setExtent(new Point(20, 20));
+    closeButton.setPosition(new Point(this.position().x + 280, this.position().y));
+    closeButton.render = function(ctx) {
+      ctx.fillStyle = 'white';
+      ctx.beginPath();
+      ctx.arc(10, 10, 8, 0, Math.PI * 2); //10, 10
+      ctx.fill();
+      ctx.strokeStyle = 'black';
+      ctx.lineWidth = 2;
+      ctx.moveTo(6, 6);
+      ctx.lineTo(14, 14);
+      ctx.moveTo(14, 6);
+      ctx.lineTo(6, 14);
+      ctx.stroke();
+    };
+    closeButton.mouseClickLeft = () => {
+      this.destroy();
+    };
+    this.add(closeButton);
+  };
+
+  DialogBoxMorph.prototype.addContentText = function() {
+    var textMorph = new TextMorph(this.content);
+    textMorph.setPosition(new Point(10, this.titleFontSize + this.titlePadding * 2 + 10));
+    textMorph.setExtent(new Point(this.width() - 20, this.height() - 50));
+    textMorph.isEditable = false;
+    textMorph.color = world.children[0].palette.text;
+    textMorph.align = 'center';
+    textMorph.setCenter(this.center());
+    this.add(textMorph);
+  };
+
+  // Create palette class
+  var PaletteMorph = function(position, extent) {
+    this.init(position, extent);
+  };
+
+  PaletteMorph.prototype = new Morph();
+  PaletteMorph.prototype.constructor = PaletteMorph;
+
+  PaletteMorph.prototype.init = function(position, extent) {
+    Morph.prototype.init.call(this);
+    this.setPosition(position);
+    this.setExtent(extent);
+    this.color = world.children[0].palette.background;
+    this.texture = null;
+    this.addNodeTemplates();
+  };
+
+  PaletteMorph.prototype.render = function(ctx) {
+    ctx.fillStyle = this.color.toString();
+    ctx.fillRect(0, 0, this.width(), this.height());
+    
+    // Add a subtle gradient
+    var gradient = ctx.createLinearGradient(0, 0, 0, this.height()); // Change to create a vertical gradient
+gradient.addColorStop(0, 'rgba(255, 255, 255, 0)'); // Start color at the top
+gradient.addColorStop(1, 'rgba(255, 255, 255, 0.1)'); // End color at the bottom
+ctx.fillStyle = gradient; // Set the fill style to the gradient
+ctx.fillRect(0, 0, this.width(), this.height()); // Fill the rectangle with the gradient
+
+    
+    if (this.texture) {
+      this.renderTexture(this.texture, ctx);
+    }
+  };
+
+  PaletteMorph.prototype.addNodeTemplates = function() {
+  let i = -1
+    var a = 0; // Initialize vertical offset
+    var blocks = [
+        'Test1',
+        'Test2', 
+        'Test3',
+        'Test4',
+    ];
+    
+    blocks.forEach((block) => {
+    i += 1
+        var template = new NodeMorph(new Point(10, a), blocks[i], "Hello"); // Set position based on 'a'
+        template.setExtent(new Point(160, 140));
+        
+        // Define the mouseDownLeft behavior for the template
+        template.mouseDownLeft = (pos) => {
+            var newNode = new NodeMorph(pos, block, "This is a sample hint!!!");
+            newNode.isDraggable = true;
+            newNode.setPosition(pos);
+            world.add(newNode);
+            
+            world.hand.grabOrigin = {
+                origin: newNode.position(),
+                position: pos
+            };
+            
+            if (world.hand.grab) {
+                world.hand.grab(newNode);
+            } else {
+                console.warn('Hand grab function not available');
+            }
+        };
+        
+        this.add(template);
+        a += 150; // Increment vertical offset for the next block
+    });
+};
+
+
+ArrowMorph.prototype = new Morph();
+ArrowMorph.prototype.constructor = ArrowMorph;
+ArrowMorph.uber = Morph.prototype;
+
+// ArrowMorph instance creation:
+
+function ArrowMorph(direction, size, padding, color, isBlockLabel) {
+    this.init(direction, size, padding, color, isBlockLabel);
+}
+
+ArrowMorph.prototype.init = function (direction, size, padding, color, isLbl) {
+    this.direction = direction || 'down';
+    this.size = size || ((size === 0) ? 0 : 50);
+    this.padding = padding || 0;
+    this.isBlockLabel = isLbl || false;
+
+    ArrowMorph.uber.init.call(this);
+    this.color = color || BLACK;
+    this.bounds.setWidth(this.size);
+    this.bounds.setHeight(this.size);
+    this.rerender();
+};
+
+ArrowMorph.prototype.setSize = function (size) {
+    var min = Math.max(size, 1);
+    this.size = size;
+    this.changed();
+    this.bounds.setWidth(min);
+    this.bounds.setHeight(min);
+    this.rerender();
+};
+
+// ArrowMorph displaying:
+
+ArrowMorph.prototype.render = function (ctx) {
+    // initialize my surface property
+    var pad = this.padding,
+        h = this.height(),
+        h2 = h / 2,
+        w = this.width(),
+        w2 = w / 2;
+
+    ctx.fillStyle = this.getRenderColor().toString();
+    ctx.beginPath();
+    if (this.direction === 'down') {
+        ctx.moveTo(pad, h2);
+        ctx.lineTo(w - pad, h2);
+        ctx.lineTo(w2, h - pad);
+    } else if (this.direction === 'up') {
+        ctx.moveTo(pad, h2);
+        ctx.lineTo(w - pad, h2);
+        ctx.lineTo(w2, pad);
+    } else if (this.direction === 'left') {
+        ctx.moveTo(pad, h2);
+        ctx.lineTo(w2, pad);
+        ctx.lineTo(w2, h - pad);
+    } else { // 'right'
+        ctx.moveTo(w2, pad);
+        ctx.lineTo(w - pad, h2);
+        ctx.lineTo(w2, h - pad);
+    }
+    ctx.closePath();
+    ctx.fill();
+};
+
+ArrowMorph.prototype.getRenderColor = function () {
+    if (this.isBlockLabel) {
+        if (MorphicPreferences.isFlat) {
+            return this.color;
+        }
+        return SyntaxElementMorph.prototype.alpha > 0.5 ? this.color : WHITE;
+    }
+    return this.color;
+};
+  // InputFieldMorph constructor and prototype setup
+  function InputFieldMorph(text, isNumeric, choiceDict, isReadOnly) {
+      this.init(text, isNumeric, choiceDict, isReadOnly);
+  }
+
+  InputFieldMorph.prototype = new Morph();
+  InputFieldMorph.prototype.constructor = InputFieldMorph;
+  InputFieldMorph.uber = Morph.prototype;
+
+  // InputFieldMorph settings
+  InputFieldMorph.prototype.edge = 2;
+  InputFieldMorph.prototype.fontSize = 12;
+  InputFieldMorph.prototype.typeInPadding = 2;
+  InputFieldMorph.prototype.contrast = 65;
+
+  // InputFieldMorph instance creation
+  InputFieldMorph.prototype.init = function (
+      text,
+      isNumeric,
+      choiceDict,
+      isReadOnly
+  ) {
+      var contents = new StringFieldMorph(
+              text || '',
+              null, null, null, null, null,
+              isNumeric || false
+          ),
+          arrow = new ArrowMorph(
+              'down',
+              0,
+              Math.max(Math.floor(this.fontSize / 6), 1)
+          );
+
+      this.choices = choiceDict || null;
+      this.isReadOnly = isReadOnly || false;
+      this.isNumeric = isNumeric || false;
+
+      contents.alpha = 0;
+      contents.fontSize = this.fontSize;
+      contents.fixLayout();
+
+      this.oldContentsExtent = contents.extent();
+
+      InputFieldMorph.uber.init.call(this);
+      this.color = BLACK;
+      this.add(contents);
+      this.add(arrow);
+      contents.isDraggable = false;
+      this.fixLayout();
+  };
+
+  // Add all the InputFieldMorph prototype methods
+  InputFieldMorph.prototype.contents = function () {
+      return detect(
+          this.children,
+          child => child instanceof StringFieldMorph
+      );
+  };
+
+  InputFieldMorph.prototype.arrow = function () {
+      return detect(
+          this.children,
+          child => child instanceof ArrowMorph
+      );
+  };
+ 
+InputFieldMorph.prototype.render = function (ctx) {
+    var borderColor;
+
+    if (this.parent) {
+        if (this.parent.color.eq(WHITE)) {
+            this.color = this.parent.color.darker(this.contrast * 0.1);
+        } else {
+            this.color = this.parent.color.lighter(this.contrast * 0.75);
+        }
+        borderColor = this.parent.color;
+    } else {
+        borderColor = new Color(120, 120, 120);
+    }
+    ctx.fillStyle = this.color.toString();
+
+    // cache my border colors
+    this.cachedClr = borderColor.toString();
+    this.cachedClrBright = borderColor.lighter(this.contrast)
+        .toString();
+    this.cachedClrDark = borderColor.darker(this.contrast).toString();
+
+    ctx.fillRect(
+        this.edge,
+        this.edge,
+        this.width() - this.edge * 2,
+        this.height() - this.edge * 2
+    );
+
+    this.drawRectBorder(ctx);
+};
+
+  InputFieldMorph.prototype.drawRectBorder = function (ctx) {
+    var shift = this.edge * 2, //0.5
+        gradient;
+
+    if (MorphicPreferences.isFlat && !this.is3D) {return; }
+
+    ctx.lineWidth = this.edge;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    if (useBlurredShadows) {
+        ctx.shadowOffsetY = shift;
+        ctx.shadowBlur = this.edge * 4;
+        ctx.shadowColor = this.cachedClrDark;
+    }
+
+    gradient = ctx.createLinearGradient(
+        0,
+        0,
+        0,
+        this.edge
+    );
+
+    gradient.addColorStop(0, this.cachedClr);
+    gradient.addColorStop(1, this.cachedClrDark);
+    ctx.strokeStyle = gradient;
+    ctx.beginPath();
+    ctx.moveTo(this.edge, shift);
+    ctx.lineTo(this.width() - this.edge - shift, shift);
+    ctx.stroke();
+
+    ctx.shadowOffsetY = 0;
+
+    gradient = ctx.createLinearGradient(
+        0,
+        0,
+        this.edge,
+        0
+    );
+    gradient.addColorStop(0, this.cachedClr);
+    gradient.addColorStop(1, this.cachedClrDark);
+    ctx.strokeStyle = gradient;
+    ctx.beginPath();
+    ctx.moveTo(shift, this.edge);
+    ctx.lineTo(shift, this.height() - this.edge - shift);
+    ctx.stroke();
+
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.shadowBlur = 0;
+
+    gradient = ctx.createLinearGradient(
+        0,
+        this.height() - this.edge,
+        0,
+        this.height()
+    );
+    gradient.addColorStop(0, this.cachedClrBright);
+    gradient.addColorStop(1, this.cachedClr);
+    ctx.strokeStyle = gradient;
+    ctx.beginPath();
+    ctx.moveTo(this.edge, this.height() - shift);
+    ctx.lineTo(this.width() - this.edge, this.height() - shift);
+    ctx.stroke();
+
+    gradient = ctx.createLinearGradient(
+        this.width() - this.edge,
+        0,
+        this.width(),
+        0
+    );
+    gradient.addColorStop(0, this.cachedClrBright);
+    gradient.addColorStop(1, this.cachedClr);
+    ctx.strokeStyle = gradient;
+    ctx.beginPath();
+    ctx.moveTo(this.width() - shift, this.edge);
+    ctx.lineTo(this.width() - shift, this.height() - this.edge);
+    ctx.stroke();
+};
+  // Create container
+  var container = new ContainerMorph();
+  world.add(container);
+  
+  
+  // Create palette
+  var palette = new PaletteMorph(new Point(10, 10), new Point(180, 580));
+  container.add(palette);
+
+  // Adjust container size
+  container.setExtent(new Point(world.width(), world.height()));
+  ContainerMorph.prototype.userMenu = function() {
+  var menu = new MenuMorph(this, "Select");
+  
+  menu.addItem("In progress", () => {
+    var dialogBox2 = new DialogBoxMorph(
+      new Point(200, 50), // Position
+      new Point(300, 200), // Size
+      "Let know", // Title
+      "This is in progress!" // Message
+    );
+    
+    this.add(dialogBox2);
+    dialogBox2.isDraggable = true;
+  });
+
+  return menu;
+};
+
+  // Create a sample DialogBoxMorph
+  var dialogBox = new DialogBoxMorph(
+    new Point(200, 50), //200, 50
+    new Point(300, 200), //300, 200
+    "Letknow",
+    "This is a in-dev node editor"
+  );
+  container.add(dialogBox);
+  dialogBox.isDraggable = true;
+  
+
+  // Custom loop function
+  function loop() {
+    requestAnimationFrame(loop);
+    world.doOneCycle();
+  }
+  
+  // Start the loop
+  loop();
+};
+</script>
+</body></html>
